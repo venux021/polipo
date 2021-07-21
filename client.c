@@ -22,6 +22,27 @@ THE SOFTWARE.
 
 #include "polipo.h"
 
+static const char *HTTP_METHOD_NAMES[] = {
+    "GET", "HEAD", "CONDITIONAL_GET", "CONNECT",
+    "POST", "PUT", "OPTIONS", "DELETE"
+};
+
+static const char *
+getHttpMethodName(int index)
+{
+    return index >= 0 && index < sizeof(HTTP_METHOD_NAMES)/sizeof(const char *) ? HTTP_METHOD_NAMES[index] : "UNKNOWN";
+}
+
+static const char *HTTP_VERSIONS[] = {
+    "HTTP/1.0", "HTTP/1.1"
+};
+
+static const char *
+getHttpVersion(int no)
+{
+    return no >= 0 && no < sizeof(HTTP_VERSIONS)/sizeof(const char *) ? HTTP_VERSIONS[no] : "HTTP_UNKNOWN";
+}
+
 static int 
 httpAcceptAgain(TimeEventHandlerPtr event)
 {
@@ -599,6 +620,24 @@ httpErrorNofinishStreamHandler(int status,
     return 1;
 }
 
+static char *
+getClientAddressAndPort(HTTPConnectionPtr connection, char *buf)
+{
+    struct sockaddr_in saddr;
+    socklen_t len;
+    int rc;
+
+    len = sizeof(struct sockaddr_in);
+    rc = getpeername(connection->fd, (struct sockaddr *)&saddr, &len);
+    if(rc < 0) {
+        do_log_error(L_ERROR, errno, "Couldn't get peer name");
+        strcpy(buf, "HOST:PORT");
+    } else {
+        sprintf(buf, "%s:%d", inet_ntoa(saddr.sin_addr), ntohs(saddr.sin_port));
+    }
+    return buf;
+}
+
 int
 httpClientHandlerHeaders(FdEventHandlerPtr event, StreamRequestPtr srequest,
                          HTTPConnectionPtr connection)
@@ -610,6 +649,7 @@ httpClientHandlerHeaders(FdEventHandlerPtr event, StreamRequestPtr srequest,
     int start;
     int code;
     AtomPtr message;
+    char addr_buf[25];
 
     start = 0;
     /* Work around clients working around NCSA lossage. */
@@ -627,6 +667,12 @@ httpClientHandlerHeaders(FdEventHandlerPtr event, StreamRequestPtr srequest,
         message =  internAtom("Error in request line");
         goto fail;
     }
+
+    do_log(L_INFO, "%s %s %s %s\n", 
+            getClientAddressAndPort(connection, addr_buf), 
+            getHttpMethodName(method), 
+            url->string, 
+            getHttpVersion(version));
 
     do_log(D_CLIENT_REQ, "Client request: ");
     do_log_n(D_CLIENT_REQ, connection->reqbuf, rc - 1);
